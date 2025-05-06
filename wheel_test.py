@@ -1,9 +1,6 @@
 import roslibpy
 import urwid
-
-# ROS bridge 設定
-ROS_BRIDGE_IP = "192.168.77.45"
-ROS_BRIDGE_PORT = 9090
+import argparse
 
 # 預設速度
 SPEED_VALUE = 100.0
@@ -19,16 +16,22 @@ key_mappings = {
     "z": [0.0, 0.0, 0.0, 0.0],
 }
 
-# 建立 ROS bridge client
-client = roslibpy.Ros(host=ROS_BRIDGE_IP, port=ROS_BRIDGE_PORT)
-client.run()
 
-if not client.is_connected:
-    print("❌ Failed to connect to ROS bridge.")
-    exit(1)
+def publish_speeds(publisher, speeds):
+    message = {"data": speeds}
+    publisher.publish(roslibpy.Message(message))
+    wheel_status.set_text(f"📤 Published speeds: {speeds}")
 
-publisher = roslibpy.Topic(client, "/car_C_rear_wheel", "std_msgs/Float32MultiArray")
-publisher.advertise()
+
+def handle_input(key, publisher):
+    if isinstance(key, str):
+        key = key.lower()
+        if key in key_mappings:
+            speeds = key_mappings[key]
+            publish_speeds(publisher, speeds)
+        elif key == "esc":
+            raise urwid.ExitMainLoop()
+
 
 # UI 顯示區塊
 status_text = urwid.Text("Press keys (W/A/S/D/Q/E/Z) or ESC to quit", align="center")
@@ -37,25 +40,28 @@ pile = urwid.Pile([status_text, urwid.Divider(), wheel_status])
 fill = urwid.Filler(pile, valign="middle")
 
 
-def publish_speeds(speeds):
-    message = {"data": speeds}
-    publisher.publish(roslibpy.Message(message))
-    wheel_status.set_text(f"📤 Published speeds: {speeds}")
-
-
-def handle_input(key):
-    if isinstance(key, str):
-        key = key.lower()
-        if key in key_mappings:
-            speeds = key_mappings[key]
-            publish_speeds(speeds)
-        elif key == "esc":
-            raise urwid.ExitMainLoop()
-
-
 def main():
-    print(f"✅ Connected to ROS bridge at {ROS_BRIDGE_IP}:{ROS_BRIDGE_PORT}")
-    urwid.MainLoop(fill, unhandled_input=handle_input).run()
+    # 命令行參數解析
+    parser = argparse.ArgumentParser(description="ROS Wheel Control Client")
+    parser.add_argument("ip", help="ROS bridge IP address")
+    parser.add_argument(
+        "-p", "--port", type=int, default=9090, help="ROS bridge port (default: 9090)"
+    )
+    args = parser.parse_args()
+
+    # 建立 ROS bridge client
+    client = roslibpy.Ros(host=args.ip, port=args.port)
+    client.run()
+
+    if not client.is_connected:
+        print(f"❌ Failed to connect to ROS bridge at {args.ip}:{args.port}")
+        exit(1)
+
+    publisher = roslibpy.Topic(client, "/wheel_speed", "std_msgs/Float32MultiArray")
+    publisher.advertise()
+
+    print(f"✅ Connected to ROS bridge at {args.ip}:{args.port}")
+    urwid.MainLoop(fill, unhandled_input=lambda key: handle_input(key, publisher)).run()
     publisher.unadvertise()
     client.terminate()
     print("🔌 Disconnected from ROS bridge.")

@@ -1,0 +1,2 @@
+roslibpy==1.8.0
+urwid==2.6.16
